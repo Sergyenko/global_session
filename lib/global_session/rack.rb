@@ -95,13 +95,18 @@ module GlobalSession
         if env['rack.cookies'].has_key?(@cookie_name)
           env['global_session'] = Session.new(@directory,
                                               env['rack.cookies'][@cookie_name])
+          debug_trace(:read_cookie, env, 'got cookie with request')
         elsif @cookie_retrieval && cookie = @cookie_retrieval.call(env)
           env['global_session'] = Session.new(@directory, cookie)
         else
+          debug_trace(:read_cookie, env, 'made new cookie')
           env['global_session'] = Session.new(@directory)
         end
 
         true
+      rescue Exception => e
+        debug_trace(:read_cookie, env, e)
+        raise e
       end
 
       # Renew the session ticket.
@@ -115,7 +120,11 @@ module GlobalSession
         if (renew = @configuration['renew']) && env['global_session'] &&
             env['global_session'].expired_at < Time.at(Time.now.utc + 60 * renew.to_i)
           env['global_session'].renew!
+          debug_trace(:renew_cookie, env, 'did renew')
         end
+      rescue Exception => e
+        debug_trace(:renew_cookie, env, e)
+        raise e
       end
 
       # Update the cookie jar with the revised ticket.
@@ -134,12 +143,15 @@ module GlobalSession
             unless env['rack.cookies'].has_key?(@cookie_name) && env['rack.cookies'][@cookie_name] == value
               env['rack.cookies'][@cookie_name] =
                   {:value => value, :domain => domain, :expires => expires, :httponly=>true}
+              debug_trace(:update_cookie, env, "did update valid session")
             end
           else
+            debug_trace(:update_cookie, env, "did update empty cookie")
             # write an empty cookie
             env['rack.cookies'][@cookie_name] = {:value => nil, :domain => domain, :expires => Time.at(0)}
           end
         rescue Exception => e
+          debug_trace(:update_cookie, env, e)
           wipe_cookie(env)
           raise e
         end
@@ -155,6 +167,10 @@ module GlobalSession
 
         domain = @configuration['cookie']['domain'] || env['SERVER_NAME']
         env['rack.cookies'][@cookie_name] = {:value => nil, :domain => domain, :expires => Time.at(0)}
+        debug_trace(:wipe_cookie, env, 'did wipe')
+      rescue Exception => e
+        debug_trace(:wipe_cookie, env, e)
+        raise e
       end
 
       # Handle exceptions that occur during app invocation. This will either save the error
@@ -166,6 +182,8 @@ module GlobalSession
       # env(Hash): Rack environment
       # e(Exception): error that happened
       def handle_error(activity, env, e)
+        debug_trace(:handle_error, env, e)
+
         if env['rack.logger']
           msg = "#{e.class} while #{activity}: #{e}"
           msg += " #{e.backtrace}" unless e.is_a?(ExpiredSession)
@@ -181,6 +199,53 @@ module GlobalSession
           raise e
         end
       end
+
+      require 'digest/md5'
+
+      def debug_trace(meth, env, bonus=nil)
+        local  = env['rack.cookies']['_session_id'][0...8] || 'unknown'.ljust(8)
+
+        raw_global = env['rack.cookies'][@cookie_name]
+        if raw_global
+          raw_global = Digest::MD5.hexdigest(raw_global)[0...8]
+        else
+          raw_global = 'unknown'.ljust(8)
+        end
+
+        global = env['global_session']
+
+        File.open('/tmp/global_session.log', 'a') do |f|
+          f.print(meth.to_s.ljust(16), ' l=', local, ' h(g)=', raw_global)
+
+          if global
+            f.print ' e=', global.expired_at.to_i
+            f.print ' g=', global.id
+          end
+
+          if bonus.is_a?(Exception)
+            f.print(' ', bonus.class.name, ': ', bonus.message, ' ', bonus.backtrace.first)
+          elsif bonus != nil
+            f.print ' ', bonus
+          end
+
+          if global
+            f.print ' {'
+            global.each_pair do |key, value|
+              f.print key, ':', value, ', '
+            end
+            f.print '}'
+          end
+
+          f.puts
+        end
+      rescue Exception => e
+        begin
+          File.open('/tmp/global_session.log', 'a') { |f| f.puts "OH NOES #{e.class.name} - #{e.message}" ; f.puts e.backtrace.join("\n") }
+        rescue Exception => e
+          #no-op
+        end
+      end
+
     end
   end
 end
