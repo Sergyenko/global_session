@@ -203,6 +203,8 @@ module GlobalSession
       require 'digest/md5'
 
       def debug_trace(meth, env, bonus=nil)
+        return unless ENV['RAILS_ENV'] == 'staging'
+
         local  = env['rack.cookies']['_session_id'][0...8] || 'unknown'.ljust(8)
 
         raw_global = env['rack.cookies'][@cookie_name]
