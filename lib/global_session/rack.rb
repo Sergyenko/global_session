@@ -207,6 +207,8 @@ module GlobalSession
 
         local  = env['rack.cookies']['_session_id'][0...8] || 'unknown'.ljust(8)
 
+        tm = Time.now.utc.strftime('%H:%M:%S') 
+
         raw_global = env['rack.cookies'][@cookie_name]
         if raw_global
           raw_global = Digest::MD5.hexdigest(raw_global)[0...8]
@@ -217,7 +219,7 @@ module GlobalSession
         global = env['global_session']
 
         File.open('/tmp/global_session.log', 'a') do |f|
-          f.print(meth.to_s.ljust(16), ' l=', local, ' h(g)=', raw_global)
+          f.print(tm, ' ', meth.to_s.ljust(16), ' l=', local, ' h(g)=', raw_global)
 
           if global
             f.print ' e=', global.expired_at.to_i
