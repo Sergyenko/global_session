@@ -204,12 +204,16 @@ module GlobalSession
 
       def debug_trace(meth, env, bonus=nil)
         return unless ENV['RAILS_ENV'] == 'staging'
-
-        local  = env['rack.cookies']['_session_id'][0...8] || 'unknown'.ljust(8)
-
+        
+        if env['rack.cookies'] && env['rack.cookies'].has_key?('_session_id') 
+          local  = env['rack.cookies']['_session_id'][0...8]
+        else
+          local = 'unknown'.ljust(8)
+        end
+        
         tm = Time.now.utc.strftime('%H:%M:%S') 
 
-        raw_global = env['rack.cookies'][@cookie_name]
+        raw_global = env['rack.cookies'] && env['rack.cookies'][@cookie_name]
         if raw_global
           raw_global = Digest::MD5.hexdigest(raw_global)[0...8]
         else
